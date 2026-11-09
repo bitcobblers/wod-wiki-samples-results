@@ -1,0 +1,19 @@
+{
+  "name": "wod-wiki-samples-results",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "wod-wiki-samples-results \u2014 a Wod.Wiki community seed source: notebooks built from the public sports datasets converted by the solar-system dataset pipeline (HYROX, athletics, CrossFit, swimming), validated and compiled into versioned seed artifacts by the wod CLI from @bitcobblers/wod-wiki-tools.",
+  "scripts": {
+    "build": "wod build",
+    "build:scaffold": "wod build --scaffold",
+    "validate": "wod build",
+    "docs:check": "node scripts/check-docs-links.cjs"
+  },
+  "devDependencies": {
+    "@bitcobblers/wod-wiki-engine": "latest",
+    "@bitcobblers/wod-wiki-tools": "latest",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}

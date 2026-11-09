@@ -1,0 +1,75 @@
+# Publishes the seed build to GitHub Pages on every push to main.
+name: Seed publish (Pages)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  # Pin JS actions to the same Node major the repo builds with.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Pages only serves one deployment at a time; queue pushes instead of cancelling.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # fetch-depth 0: manifest version stamping derives from full git history.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          # No lockfile is committed (the engine devDep tracks the `latest`
+          # dist-tag), so dependency caching has nothing to key on — leave
+          # cache disabled.
+
+      # The wod CLI ships as the @bitcobblers/wod-wiki-tools devDependency;
+      # npx resolves its local bin (npm install alone does not put
+      # node_modules/.bin on PATH).
+      - run: npm install
+
+      - run: npx wod build --out dist
+
+      - name: Render manifest summary
+        if: always()
+        run: |
+          node --input-type=module - <<'EOF'
+          import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+
+          let out;
+          if (!existsSync('dist/manifest.json')) {
+            out = '_Build failed before a manifest was produced._\n';
+          } else {
+            const m = JSON.parse(readFileSync('dist/manifest.json', 'utf8'));
+            out = `**Version** ${m.version} · \`${m.versionLabel ?? 'n/a'}\` · commit \`${(m.commit ?? '').slice(0, 8)}\` · dirty: ${m.dirty ? 'yes' : 'no'}\n\n`;
+            out += '| chunk | kind | rows | KB | sha8 |\n|---|---|---:|---:|---|\n';
+            for (const c of m.chunks) {
+              out += `| ${c.id} | ${c.kind ?? 'notes'} | ${c.count} | ${(c.bytes / 1024).toFixed(1)} | ${c.sha256.slice(0, 8)} |\n`;
+            }
+          }
+          writeFileSync('seed-summary.md', out);
+          EOF
+          cat seed-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

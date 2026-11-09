@@ -1,0 +1,25 @@
+---
+domain: track
+format: for-time
+intent: competition
+level: expert
+---
+
+# 3000m Steeplechase — Athlete ID972 — 3:37
+
+**Source:** athtech-rome-2024-isolynx-heats (AthTech Challenge 2025 dataset (openath/trhackathon2025), Apache-2.0; athlete files derived from Tilastopaja and tracking data provided by Matsport/IsoLynx.). Session `athletics-70-1-1-3000m-Steeplechase-Men-R1-H1-14-IsoTrack-csv-ID972`, retrieved 2026-11-09.
+
+```time
+0:15.27 100 m
+0:18.40 200 m
+0:18.00 300 m
+0:19.10 400 m
+0:18.40 500 m
+0:19.00 600 m
+0:18.80 700 m
+0:18.90 800 m
+0:18.30 900 m
+0:18.90 1000 m
+0:17.20 1100 m
+0:17.10 1200 m
+```

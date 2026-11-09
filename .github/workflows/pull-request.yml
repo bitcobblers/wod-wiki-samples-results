@@ -1,0 +1,127 @@
+# Validates content MRs with the wod CLI and reports the build back on the PR.
+name: Seed PR validation
+
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  # Pin JS actions to the same Node major the repo builds with.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# One report per PR: a new push cancels the stale run instead of racing it.
+concurrency:
+  group: seed-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth 0: manifest version stamping derives from full git history,
+      # and the changed-file report diffs against the PR base.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          # No lockfile is committed (the engine devDep tracks the `latest`
+          # dist-tag), so dependency caching has nothing to key on — leave
+          # cache disabled.
+
+      # The wod CLI ships as the @bitcobblers/wod-wiki-tools devDependency;
+      # npx resolves its local bin (npm install alone does not put
+      # node_modules/.bin on PATH).
+      - run: npm install
+
+      # Validation gate: parity gate + dashboard validation; non-zero fails the MR.
+      - id: build
+        run: npx wod build --out dist
+
+      # Rendered once, reused by both the step summary and the sticky PR comment.
+      - name: Render manifest summary
+        if: always()
+        run: |
+          node --input-type=module - <<'EOF'
+          import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+
+          let out;
+          if (!existsSync('dist/manifest.json')) {
+            out = '_Build failed before a manifest was produced._\n';
+          } else {
+            const m = JSON.parse(readFileSync('dist/manifest.json', 'utf8'));
+            out = `**Version** ${m.version} · \`${m.versionLabel ?? 'n/a'}\` · commit \`${(m.commit ?? '').slice(0, 8)}\` · dirty: ${m.dirty ? 'yes' : 'no'}\n\n`;
+            out += '| chunk | kind | rows | KB | sha8 |\n|---|---|---:|---:|---|\n';
+            for (const c of m.chunks) {
+              out += `| ${c.id} | ${c.kind ?? 'notes'} | ${c.count} | ${(c.bytes / 1024).toFixed(1)} | ${c.sha256.slice(0, 8)} |\n`;
+            }
+          }
+          writeFileSync('seed-summary.md', out);
+          EOF
+          cat seed-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: seed-report
+          path: dist/report.html
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # Sticky comment: updated in place on every push so the PR never accumulates reports.
+      - uses: actions/github-script@v9
+        if: always()
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        with:
+          script: |
+            const { readFileSync } = await import('node:fs');
+            const { execSync } = await import('node:child_process');
+            const marker = '<!-- seed-build-report -->';
+
+            let body = `${marker}\n## Seed build report\n\n`;
+            body += process.env.BUILD_OUTCOME === 'success'
+              ? '✅ `wod build` passed\n'
+              : '❌ `wod build` failed — open the workflow run for the failed step and logs\n';
+
+            try {
+              body += '\n' + readFileSync('seed-summary.md', 'utf8') + '\n';
+            } catch {}
+
+            if (process.env.BASE_SHA) {
+              const changed = execSync(
+                `git diff --name-only ${process.env.BASE_SHA} HEAD -- markdown/ || true`,
+                { encoding: 'utf8' },
+              ).trim();
+              if (changed) {
+                body += '### Changed markdown files\n\n'
+                  + [...new Set(changed.split('\n'))].map((f) => `- ${f}`).join('\n') + '\n';
+              }
+            }
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((c) => c.user.type === 'Bot' && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

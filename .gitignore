@@ -1,0 +1,5 @@
+node_modules/
+dist/
+
+# The engine devDep tracks the `latest` dist-tag — a lockfile would freeze it.
+package-lock.json
